@@ -1,0 +1,11 @@
+[package]
+name = "rossbot"
+version = "0.1.0"
+authors = ["BookOwl <stanleybookowl@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+serenity = "0.5"
+env_logger = "~0.4"
+log = "~0.3"
+typemap = "0.3.3"
