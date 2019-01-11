@@ -6,6 +6,8 @@ extern crate typemap;
 extern crate log;
 extern crate env_logger;
 
+extern crate subprocess;
+
 use serenity::client::{Client, EventHandler};
 use serenity::framework::standard::*;
 use serenity::prelude::*;
@@ -13,9 +15,13 @@ use serenity::model::prelude::*;
 use serenity::builder::{CreateMessage, CreateEmbed};
 use serenity::model::channel::MessageType;
 use typemap::Key;
-
+use subprocess::{Exec, Redirection};
 use std::env;
+use std::fs::File;
+use std::io::Read;
+use std::io::Write;
 use std::collections::HashMap;
+use std::time::Duration;
 
 struct Config;
 impl Key for Config {
@@ -115,6 +121,7 @@ pub fn main() {
                         .command("launch_nukes", |c| c.check(admin_check).cmd(launch_the_nukes))
                         .command("foo", |c| c.check(owner_check).cmd(foo))
                         .command("delete_pin_confs", |c| c.check(admin_check).cmd(delete_pin_confs))
+                        .command("py", |c| c.check(admin_check).cmd(py))
 
     );
 
@@ -186,6 +193,50 @@ command!(delete_pin_confs(ctx, msg, args) {
         let mut config = data.get_mut::<Config>().expect("Expected Config in ShareMap.");
         config.delete_pin_confs = d;
         if let Err(why) = msg.channel_id.say(&format!("Ping conf delete status: {}", d)) {
+            error!("Error sending message: {:?}", why);
+        }
+    }
+});
+
+#[derive(Debug, PartialEq)]
+enum PyMode {
+    Expression,
+    Program,
+}
+command!(py(ctx, msg, args) {
+    let code = args.full();
+    let mode = if code.starts_with("```") {
+        PyMode::Program
+    } else {
+        PyMode::Expression
+    };
+    let code = code.trim_start_matches("`").trim_start_matches("python\n").trim_start_matches("py\n").trim_end_matches("`");
+    let original_code = code;
+    let code = match mode {
+        PyMode::Expression => format!("print({})", code),
+        PyMode::Program => format!("{}", code),
+    };
+    info!("mode: {:?} code: {:?}", mode, code);
+    let mut f = File::create("temp.py")?;
+    write!(&mut f, "{}\n", code)?;
+    f.sync_data()?;
+    let mut p = Exec::cmd("python3").arg("temp.py").stdout(Redirection::Pipe).stderr(Redirection::Merge).popen()?;
+    if let Some(status) = p.wait_timeout(Duration::new(5, 0))? {
+        info!("python process finished as {:?}", status);
+        let mut b = String::new();
+        p.stdout.as_mut().unwrap().read_to_string(&mut b)?;
+        let res = match mode {
+            PyMode::Expression => format!("```py\n>>> {}\n{}\n```" , original_code, b),
+            PyMode::Program => format!("Result:\n```\n{}\n```", b),
+        };
+        if let Err(why) = msg.channel_id.say(&res) {
+            error!("Error sending message: {:?}", why);
+        }
+    } else {
+        p.kill()?;
+        p.wait()?;
+        info!("python process killed");
+        if let Err(why) = msg.channel_id.say("Process timed out. :(") {
             error!("Error sending message: {:?}", why);
         }
     }
