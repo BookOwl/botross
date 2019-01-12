@@ -1,5 +1,5 @@
 /target
 **/*.rs.bk
-run
+DISCORD_TOKEN.txt
 temp.py
 .DS_Store
