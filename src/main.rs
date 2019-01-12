@@ -23,6 +23,9 @@ use std::io::Write;
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// My Discord ID. Replace this with your user ID
+const OWNER_ID: u64 = 270_631_094_657_744_896;
+
 struct Config;
 impl Key for Config {
     type Value = ConfigData;
@@ -50,7 +53,7 @@ struct Handler;
 impl EventHandler for Handler {
     fn ready(&self, ctx: Context, r: Ready) {
         info!("{} is connected!", r.user.name);
-        ctx.set_game_name("Prefix: \\");
+        ctx.set_game(Game::playing("Prefix: \\"));
         info!("Rossbot is go!");
     }
     fn resume(&self, _: Context, resume: ResumedEvent) {
@@ -93,7 +96,7 @@ pub fn main() {
                         })
                         .unrecognised_command(|_, msg, cmd| {
                             info!("Unknown command {:?}", cmd);
-                            if let Err(e) = msg.channel_id.say(&format!("Unknown command")) {
+                            if let Err(e) = msg.channel_id.say("Unknown command".to_string()) {
                                 error!("Error sending messege: {:?}", e);
                             }
                         })
@@ -109,7 +112,9 @@ pub fn main() {
                                     };
                                     if delete {
                                         info!("Deleting pin conf message");
-                                        message.delete();
+                                        if let Err(e) = message.delete() {
+                                            error!("Error deleting pin conf message: {:?}", e);
+                                        };
                                     } else {
                                         info!("Not deleting pin conf message");
                                     }
@@ -137,7 +142,7 @@ pub fn main() {
 // in order for the command to be executed. If the check fails, the command is
 // not called.
 fn owner_check(_: &mut Context, msg: &Message, _: &mut Args, _: &CommandOptions) -> bool {
-    msg.author.id == 270631094657744896
+    msg.author.id == OWNER_ID
 }
 
 // A function which acts as a "check", to determine whether to call a command.
@@ -214,7 +219,7 @@ command!(py(_ctx, msg, args) {
     let original_code = code;
     let code = match mode {
         PyMode::Expression => format!("print({})", code),
-        PyMode::Program => format!("{}", code),
+        PyMode::Program => code.to_string(),
     };
     info!("mode: {:?} code: {:?}", mode, code);
     let mut f = File::create("temp.py")?;
