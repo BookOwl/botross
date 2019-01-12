@@ -203,7 +203,7 @@ enum PyMode {
     Expression,
     Program,
 }
-command!(py(ctx, msg, args) {
+command!(py(_ctx, msg, args) {
     let code = args.full();
     let mode = if code.starts_with("```") {
         PyMode::Program
@@ -220,7 +220,7 @@ command!(py(ctx, msg, args) {
     let mut f = File::create("temp.py")?;
     write!(&mut f, "{}\n", code)?;
     f.sync_data()?;
-    let mut p = Exec::cmd("python3").arg("temp.py").stdout(Redirection::Pipe).stderr(Redirection::Merge).popen()?;
+    let mut p = (if cfg!(windows) {Exec::cmd("py").arg("-3")} else {Exec::cmd("python3")}).arg("temp.py").stdout(Redirection::Pipe).stderr(Redirection::Merge).popen()?;
     if let Some(status) = p.wait_timeout(Duration::new(5, 0))? {
         info!("python process finished as {:?}", status);
         let mut b = String::new();
