@@ -1,1 +1,1 @@
-web: ./target/release/rossbot
+worker: ./target/release/rossbot
