@@ -8,20 +8,20 @@ extern crate env_logger;
 
 extern crate subprocess;
 
+use serenity::builder::{CreateEmbed, CreateMessage};
 use serenity::client::{Client, EventHandler};
 use serenity::framework::standard::*;
-use serenity::prelude::*;
-use serenity::model::prelude::*;
-use serenity::builder::{CreateMessage, CreateEmbed};
 use serenity::model::channel::MessageType;
-use typemap::Key;
-use subprocess::{Exec, Redirection};
+use serenity::model::prelude::*;
+use serenity::prelude::*;
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
-use std::collections::HashMap;
 use std::time::Duration;
+use subprocess::{Exec, Redirection};
+use typemap::Key;
 
 /// My Discord ID. Replace this with your user ID
 const OWNER_ID: u64 = 270_631_094_657_744_896;
@@ -37,7 +37,7 @@ struct ConfigData {
 impl Default for ConfigData {
     fn default() -> Self {
         ConfigData {
-            delete_pin_confs: false,
+            delete_pin_confs: true,
         }
     }
 }
@@ -67,67 +67,72 @@ pub fn main() {
     // Login with a bot token from the environment
     let mut client = Client::new(&env::var("DISCORD_TOKEN").expect("token"), Handler)
         .expect("Error creating client");
-    
+
     {
         let mut data = client.data.lock();
         data.insert::<Config>(ConfigData::default());
         data.insert::<CommandCounter>(HashMap::new());
     }
 
-    client.with_framework(StandardFramework::new()
-                        .configure(|c| c
-                              .allow_whitespace(true)
-                              .on_mention(true)
-                              .prefix("\\"))
-                        .before(|ctx, msg, command_name| {
-                            info!("Got command '{}' by user '{}'", command_name, msg.author.name);
+    client.with_framework(
+        StandardFramework::new()
+            .configure(|c| c.allow_whitespace(true).on_mention(true).prefix("\\"))
+            .before(|ctx, msg, command_name| {
+                info!(
+                    "Got command '{}' by user '{}'",
+                    command_name, msg.author.name
+                );
 
-                            let mut data = ctx.data.lock();
-                            let counter = data.get_mut::<CommandCounter>().expect("Expected CommandCounter in ShareMap.");
-                            let entry = counter.entry(command_name.to_string()).or_insert(0);
-                            *entry += 1;
-                            true
-                        })
-                        .after(|_, _, command_name, error| {
-                            match error {
-                                Ok(()) => info!("Processed command '{}'", command_name),
-                                Err(why) => info!("Command '{}' returned error {:?}", command_name, why),
-                            }
-                        })
-                        .unrecognised_command(|_, msg, cmd| {
-                            info!("Unknown command {:?}", cmd);
-                            if let Err(e) = msg.channel_id.say("Unknown command".to_string()) {
-                                error!("Error sending messege: {:?}", e);
-                            }
-                        })
-                        .message_without_command(|ctx, message| {
-                            info!("Message is not a command '{}'", message.content);
-                            match message.kind {
-                                MessageType::PinsAdd => {
-                                    info!("Message is a pin notification");
-                                    let delete = {
-                                        let data = ctx.data.lock();
-                                        let config = data.get::<Config>().expect("Expected Config in ShareMap.");
-                                        config.delete_pin_confs
-                                    };
-                                    if delete {
-                                        info!("Deleting pin conf message");
-                                        if let Err(e) = message.delete() {
-                                            error!("Error deleting pin conf message: {:?}", e);
-                                        };
-                                    } else {
-                                        info!("Not deleting pin conf message");
-                                    }
-                                },
-                                _ => {},
-                            }
-                        })
-                        .command("ping", |c| c.cmd(ping))
-                        .command("launch_nukes", |c| c.check(admin_check).cmd(launch_the_nukes))
-                        .command("foo", |c| c.check(owner_check).cmd(foo))
-                        .command("delete_pin_confs", |c| c.check(admin_check).cmd(delete_pin_confs))
-                        .command("py", |c| c.check(admin_check).cmd(py))
-
+                let mut data = ctx.data.lock();
+                let counter = data
+                    .get_mut::<CommandCounter>()
+                    .expect("Expected CommandCounter in ShareMap.");
+                let entry = counter.entry(command_name.to_string()).or_insert(0);
+                *entry += 1;
+                true
+            })
+            .after(|_, _, command_name, error| match error {
+                Ok(()) => info!("Processed command '{}'", command_name),
+                Err(why) => info!("Command '{}' returned error {:?}", command_name, why),
+            })
+            .unrecognised_command(|_, msg, cmd| {
+                info!("Unknown command {:?}", cmd);
+                if let Err(e) = msg.channel_id.say("Unknown command".to_string()) {
+                    error!("Error sending messege: {:?}", e);
+                }
+            })
+            .message_without_command(|ctx, message| {
+                info!("Message is not a command '{}'", message.content);
+                match message.kind {
+                    MessageType::PinsAdd => {
+                        info!("Message is a pin notification");
+                        let delete = {
+                            let data = ctx.data.lock();
+                            let config =
+                                data.get::<Config>().expect("Expected Config in ShareMap.");
+                            config.delete_pin_confs
+                        };
+                        if delete {
+                            info!("Deleting pin conf message");
+                            if let Err(e) = message.delete() {
+                                error!("Error deleting pin conf message: {:?}", e);
+                            };
+                        } else {
+                            info!("Not deleting pin conf message");
+                        }
+                    }
+                    _ => {}
+                }
+            })
+            .command("ping", |c| c.cmd(ping))
+            .command("launch_nukes", |c| {
+                c.check(admin_check).cmd(launch_the_nukes)
+            })
+            .command("foo", |c| c.check(owner_check).cmd(foo))
+            .command("delete_pin_confs", |c| {
+                c.check(admin_check).cmd(delete_pin_confs)
+            })
+            .command("py", |c| c.check(admin_check).cmd(py)),
     );
 
     // start listening for events by starting a single shard
@@ -151,7 +156,6 @@ fn owner_check(_: &mut Context, msg: &Message, _: &mut Args, _: &CommandOptions)
 // administrator-permissions.
 fn admin_check(_: &mut Context, msg: &Message, _: &mut Args, _: &CommandOptions) -> bool {
     if let Some(member) = msg.member() {
-
         if let Ok(permissions) = member.permissions() {
             return permissions.administrator();
         }
