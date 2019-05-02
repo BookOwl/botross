@@ -10,3 +10,7 @@ env_logger = "~0.4"
 log = "~0.3"
 typemap = "0.3.3"
 subprocess = "0.1.18"
+
+[dependencies.postgres]
+version = "0.15"
+features = ["with-native-tls"]

@@ -8,6 +8,9 @@ extern crate env_logger;
 
 extern crate subprocess;
 
+#[macro_use]
+extern crate postgres;
+
 use serenity::builder::{CreateEmbed, CreateMessage};
 use serenity::client::{Client, EventHandler};
 use serenity::framework::standard::*;
@@ -22,6 +25,8 @@ use std::io::Write;
 use std::time::Duration;
 use subprocess::{Exec, Redirection};
 use typemap::Key;
+use postgres::TlsMode;
+use postgres::tls::native_tls::NativeTls;
 
 /// My Discord ID. Replace this with your user ID
 const OWNER_ID: u64 = 270_631_094_657_744_896;
@@ -31,6 +36,7 @@ impl Key for Config {
     type Value = ConfigData;
 }
 
+#[derive(Debug)]
 struct ConfigData {
     delete_pin_confs: bool,
 }
@@ -40,6 +46,46 @@ impl Default for ConfigData {
             delete_pin_confs: true,
         }
     }
+}
+impl ConfigData {
+    fn load_from_db() -> ConfigData {
+        let conn = connect_to_db();
+        conn.execute("CREATE TABLE IF NOT EXISTS config (
+                        id                  SERIAL PRIMARY KEY,
+                        delete_pin_confs    BOOL
+                     )", &[]).unwrap();
+        if let Some(row) = conn.query("SELECT delete_pin_confs FROM config", &[]).unwrap().iter().next() {
+            ConfigData {
+                delete_pin_confs: row.get(0),
+            }
+        } else {
+            let default_config: ConfigData = Default::default();
+            conn.execute("INSERT INTO config (delete_pin_confs) VALUES ($1)",
+                 &[&default_config.delete_pin_confs]).unwrap();
+            default_config
+        }
+    }
+    fn save_to_db(&self) {
+        let conn = connect_to_db();
+        conn.execute("CREATE TABLE IF NOT EXISTS config (
+                        id                  SERIAL PRIMARY KEY,
+                        delete_pin_confs    BOOL
+                     )", &[]).unwrap();
+        conn.execute("DELETE FROM config", &[]).unwrap();
+        conn.execute("INSERT INTO config (delete_pin_confs) VALUES ($1)",
+                 &[&self.delete_pin_confs]).unwrap();
+    }
+}
+
+fn connect_to_db() -> postgres::Connection {
+    let DB_URL = env::var("DATABASE_URL").unwrap();
+        println!("{:?}", DB_URL);
+        let negotiator = NativeTls::new().unwrap();
+        if let Ok(conn) = postgres::Connection::connect(DB_URL.as_str(), TlsMode::Require(&negotiator)) {
+            conn
+        } else {
+            postgres::Connection::connect(DB_URL.as_str(), TlsMode::None).unwrap()
+        }
 }
 
 struct CommandCounter;
@@ -65,14 +111,17 @@ pub fn main() {
     env_logger::init().expect("Unable to init env_logger");
 
     // Login with a bot token from the environment
+    println!("{:?}", &env::var("DISCORD_TOKEN").expect("token"));
     let mut client = Client::new(&env::var("DISCORD_TOKEN").expect("token"), Handler)
         .expect("Error creating client");
+    println!("Created client");
 
     {
         let mut data = client.data.lock();
-        data.insert::<Config>(ConfigData::default());
+        data.insert::<Config>(ConfigData::load_from_db());
         data.insert::<CommandCounter>(HashMap::new());
     }
+    println!("Created config data");
 
     client.with_framework(
         StandardFramework::new()
@@ -134,6 +183,7 @@ pub fn main() {
             })
             .command("py", |c| c.check(admin_check).cmd(py)),
     );
+    println!("framework created");
 
     // start listening for events by starting a single shard
     if let Err(why) = client.start() {
@@ -201,6 +251,7 @@ command!(delete_pin_confs(ctx, msg, args) {
         let mut data = ctx.data.lock();
         let mut config = data.get_mut::<Config>().expect("Expected Config in ShareMap.");
         config.delete_pin_confs = d;
+        config.save_to_db();
         if let Err(why) = msg.channel_id.say(&format!("Ping conf delete status: {}", d)) {
             error!("Error sending message: {:?}", why);
         }
