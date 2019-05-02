@@ -1,5 +1,8 @@
 /target
 **/*.rs.bk
 DISCORD_TOKEN.txt
+WOLFRAM_APP_ID.txt
 temp.py
 .DS_Store
+botross
+run
