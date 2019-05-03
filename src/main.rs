@@ -11,6 +11,9 @@ extern crate subprocess;
 #[macro_use]
 extern crate postgres;
 
+#[macro_use]
+extern crate lazy_static;
+
 use serenity::builder::{CreateEmbed, CreateMessage};
 use serenity::client::{Client, EventHandler};
 use serenity::framework::standard::*;
@@ -40,6 +43,58 @@ Source code for BotRoss can be found at https://github.com/BookOwl/botross/
 "#;
 
 const LICENSE: &str = include_str!("../LICENSE");
+
+#[derive(Debug, Clone)]
+struct HelpItem {
+    usage: &'static str,
+    short: &'static str,
+    long: &'static str,
+}
+
+lazy_static! {
+    static ref HELP_TEXTS: HashMap<&'static str, HelpItem> = {
+        [
+        ("about", HelpItem {
+            usage: "\\about",
+            short: "",
+            long: "Displays information about BotRoss and links to the source code"
+        }),
+        ("license", HelpItem {
+            usage: "\\license",
+            short: "",
+            long: "Displays the license for BotRoss (the MIT license)"
+        }),
+        ("ping", HelpItem {
+            usage: "\\ping",
+            short: "(Test command)",
+            long: "Sends \"Pong!\" (for testing)",
+        }),
+        ("V2", HelpItem {
+            usage: "\\V2",
+            short: "",
+            long: "This is what +V2 was for"
+        }),
+        ("delete_pin_confs", HelpItem {
+            usage: "\\delete_pin_confs [yes|no|true|false]",
+            short: "Sets BotRoss to automatically delete pin conf messages",
+            long: r#"BotRoss can automatically delete pin confirmation messages. 
+If called with no arguments displays the current pin deletion status, 
+otherwise if called with [yes|no|true|false] sets the pin confirmation setting"#
+        }),
+        ("py", HelpItem {
+            usage: "\\py (code)",
+            short: "Runs Python3 code",
+            long: r#"Evaluates the Python3 code passed and prints the result.
+Can take the (code) argument either in a tripple backtick code block for one or more statements or as the rest of the comment for an expresion."#
+        }),
+        ("help", HelpItem {
+            usage: "\\help [cmd]",
+            short: "Displays help",
+            long: "Displays a list of commands if run without arguments or help for a specified command."
+        }),
+        ].iter().cloned().collect::<HashMap<&str,_>>()
+    };
+}
 
 struct Config;
 impl Key for Config {
@@ -89,7 +144,7 @@ impl ConfigData {
 
 fn connect_to_db() -> postgres::Connection {
     let DB_URL = env::var("DATABASE_URL").unwrap();
-        println!("{:?}", DB_URL);
+        info!("{:?}", DB_URL);
         let negotiator = NativeTls::new().unwrap();
         if let Ok(conn) = postgres::Connection::connect(DB_URL.as_str(), TlsMode::Require(&negotiator)) {
             conn
@@ -121,17 +176,17 @@ pub fn main() {
     env_logger::init().expect("Unable to init env_logger");
 
     // Login with a bot token from the environment
-    println!("{:?}", &env::var("DISCORD_TOKEN").expect("token"));
+    info!("{:?}", &env::var("DISCORD_TOKEN").expect("token"));
     let mut client = Client::new(&env::var("DISCORD_TOKEN").expect("token"), Handler)
         .expect("Error creating client");
-    println!("Created client");
+    info!("Created client");
 
     {
         let mut data = client.data.lock();
         data.insert::<Config>(ConfigData::load_from_db());
         data.insert::<CommandCounter>(HashMap::new());
     }
-    println!("Created config data");
+    info!("Created config data");
 
     client.with_framework(
         StandardFramework::new()
@@ -184,22 +239,22 @@ pub fn main() {
                 }
             })
             .command("ping", |c| c.cmd(ping))
-            .command("launch_nukes", |c| {
+            .command("V2", |c| {
                 c.check(admin_check).cmd(launch_the_nukes)
             })
-            .command("foo", |c| c.check(owner_check).cmd(foo))
             .command("delete_pin_confs", |c| {
                 c.check(admin_check).cmd(delete_pin_confs)
             })
             .command("py", |c| c.check(admin_check).cmd(py))
             .command("about", |c| c.cmd(about))
-            .command("license", |c| c.cmd(license)),
+            .command("license", |c| c.cmd(license))
+            .command("help", |c| c.cmd(help)),
     );
-    println!("framework created");
+    info!("framework created");
 
     // start listening for events by starting a single shard
     if let Err(why) = client.start() {
-        println!("An error occurred while running the client: {:?}", why);
+        error!("An error occurred while running the client: {:?}", why);
     }
 }
 
@@ -234,14 +289,8 @@ command!(ping(_ctx, msg, _args) {
 
 command!(launch_the_nukes(_ctx, msg, _args) {
     if let Err(why) = msg.channel_id.send_message(|m| m
-                                                    .content("Nukes launched")
+                                                    .content("This is what +V2 was for")
                                                     .embed(|e| e.image(r"https://media.giphy.com/media/HhTXt43pk1I1W/giphy.gif"))) {
-        error!("Error sending message: {:?}", why);
-    }
-});
-
-command!(foo(_ctx, msg, _args) {
-    if let Err(why) = msg.channel_id.say("Bar") {
         error!("Error sending message: {:?}", why);
     }
 });
@@ -324,4 +373,34 @@ command!(license(_ctx, msg, _args) {
     if let Err(why) = msg.channel_id.say(&format!("License for BotRoss:```\n{}\n```", LICENSE)) {
         error!("Error sending message: {:?}", why);
     }
+});
+
+command!(help(_ctx, msg, args) {
+    if args.is_empty() {
+        let mut help_txt = "Commands:\n```\n".to_owned();
+        for (_cmd_name, help_info) in HELP_TEXTS.iter() {
+            if help_info.short.len() > 0 { 
+                help_txt.push_str(&format!("{}: {}\n\n", help_info.usage, help_info.short));
+            } else {
+                help_txt.push_str(help_info.usage);
+                help_txt.push_str("\n\n");
+            }
+        }
+        help_txt.push_str("```");
+        info!("Help txt: {:?}", help_txt);
+        if let Err(why) = msg.channel_id.say(&help_txt) {
+            error!("Error sending message: {:?}", why);
+        }
+    } else {
+        let arg: String = args.single()?;
+        let response = if let Some(help_info) = HELP_TEXTS.get::<&str>(&&arg.as_str()) { // Hideous but works somehow
+            format!("{}\nUsage: `{}`\n\n{}", arg, help_info.usage, help_info.long)
+        } else {
+            format!("`\\{}` is not a known command", arg)
+        };
+        if let Err(why) = msg.channel_id.say(&response) {
+            error!("Error sending message: {:?}", why);
+        }
+    };
+
 });
