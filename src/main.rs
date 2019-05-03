@@ -31,6 +31,16 @@ use postgres::tls::native_tls::NativeTls;
 /// My Discord ID. Replace this with your user ID
 const OWNER_ID: u64 = 270_631_094_657_744_896;
 
+const ABOUT: &str = r#"
+BotRoss is a Discord bot created by Matthew Stanley and released under the MIT license.
+For a list of commands type `\help`
+To see the license type `\license`
+
+Source code for BotRoss can be found at https://github.com/BookOwl/botross/
+"#;
+
+const LICENSE: &str = include_str!("../LICENSE");
+
 struct Config;
 impl Key for Config {
     type Value = ConfigData;
@@ -66,7 +76,7 @@ impl ConfigData {
         }
     }
     fn save_to_db(&self) {
-        let conn = connect_to_db();
+        let conn = connect_to_db(); 
         conn.execute("CREATE TABLE IF NOT EXISTS config (
                         id                  SERIAL PRIMARY KEY,
                         delete_pin_confs    BOOL
@@ -100,7 +110,7 @@ impl EventHandler for Handler {
     fn ready(&self, ctx: Context, r: Ready) {
         info!("{} is connected!", r.user.name);
         ctx.set_game(Game::playing("Prefix: \\"));
-        info!("Rossbot is go!");
+        info!("BotRoss is go!");
     }
     fn resume(&self, _: Context, resume: ResumedEvent) {
         debug!("Resumed; trace: {:?}", resume.trace);
@@ -181,7 +191,9 @@ pub fn main() {
             .command("delete_pin_confs", |c| {
                 c.check(admin_check).cmd(delete_pin_confs)
             })
-            .command("py", |c| c.check(admin_check).cmd(py)),
+            .command("py", |c| c.check(admin_check).cmd(py))
+            .command("about", |c| c.cmd(about))
+            .command("license", |c| c.cmd(license)),
     );
     println!("framework created");
 
@@ -299,5 +311,17 @@ command!(py(_ctx, msg, args) {
         if let Err(why) = msg.channel_id.say("Process timed out. :(") {
             error!("Error sending message: {:?}", why);
         }
+    }
+});
+
+command!(about(_ctx, msg, _args) {
+    if let Err(why) = msg.channel_id.say(ABOUT) {
+        error!("Error sending message: {:?}", why);
+    }
+});
+
+command!(license(_ctx, msg, _args) {
+    if let Err(why) = msg.channel_id.say(&format!("License for BotRoss:```\n{}\n```", LICENSE)) {
+        error!("Error sending message: {:?}", why);
     }
 });
